@@ -1,0 +1,467 @@
+```{r}
+rm(list=ls())
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stats)
+library(umap)
+library(pheatmap)
+```
+
+
+```{r}
+setwd("~/Computational Biology")
+rna_counts <- read.csv("rna_vst_counts.csv")
+polar_neg <- read.csv("polar_neg_pqn_imputed_glog.csv")
+polar_pos <- read.csv("polar_pos_pqn_imputed_glog.csv")
+sample_sheet <- read.csv("sample_sheet.csv")
+```
+
+
+```{r}
+#Transpose Omics Data 
+
+# Transpose RNA
+rna_counts <- read.csv("rna_vst_counts.csv", row.names = 1) #row.names = 1 tells R that the first column (the Genes) is the ID, not data
+rna_t <- as.data.frame(t(rna_counts))
+rna_t$SampleID <- rownames(rna_t)
+
+# Transpose Negative Metabolomics
+neg_t <- as.data.frame(t(polar_neg))
+neg_t$SampleID <- rownames(neg_t)
+
+# Transpose Positive Metabolomics
+pos_t <- as.data.frame(t(polar_pos))
+pos_t$SampleID <- rownames(pos_t)
+
+#join into one df
+master_df <- left_join(sample_sheet, rna_t, by = "SampleID")
+```
+
+```{r}
+#Load the chemical data (ensure you use check.names=FALSE to keep names clean)
+chem_data <- read.delim("water_chemicals.tsv", check.names = FALSE)
+
+#Reshape: Turn "Chemical Rows" into "Chemical Columns"
+# We want 12 rows (one per site) and 91 columns (one per chemical)
+chem_pivoted <- chem_data %>%
+  select(-CAS) %>% # Remove CAS numbers as they interfere with pivoting
+  pivot_longer(cols = starts_with("D"), 
+               names_to = "Site", 
+               values_to = "Value") %>%
+  pivot_wider(names_from = "ChemName", 
+              values_from = "Value")
+
+#Now Join - This will be a "Many-to-One" join (Correct)
+# Many Daphnia samples (x) will map to One Site profile (y)
+final_dataset <- left_join(master_df, chem_pivoted, by = "Site")
+
+```
+
+
+```{r}
+# Find where the chemical columns start (the last 91 columns)
+chem_start <- ncol(final_dataset) - 90
+chem_end <- ncol(final_dataset)
+
+# Replace NAs with 0 only in those columns
+final_dataset[, chem_start:chem_end][is.na(final_dataset[, chem_start:chem_end])] <- 0
+
+# Double check
+sum(is.na(final_dataset))
+```
+
+
+
+```{r}
+# Prepare the data: Remove any genes that have ZERO variance 
+# (PCA crashes if a gene is the same across all samples)
+gene_data <- final_dataset[, grep("^Dapma", colnames(final_dataset))]
+gene_data <- gene_data[, sapply(gene_data, var) > 0]
+
+# Run PCA
+pca_res <- prcomp(gene_data, scale. = TRUE)
+pca_df <- data.frame(
+  PC1 = pca_res$x[,1],
+  PC2 = pca_res$x[,2],
+  Site = final_dataset$Site,
+  REF = final_dataset$REF,
+  Concentration = final_dataset$Description
+)
+
+# Plot 
+ggplot(pca_df, aes(x = PC1, y = PC2, color = REF, shape = Concentration)) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_shape_manual(values = c(15, 16, 17, 18)) + 
+  theme_minimal() +
+  labs(title = "Multi-Omics PCA: Interaction of Site and Concentration",
+       x = "PC1", y = "PC2") +
+  theme(legend.position = "right")
+
+```
+
+```{r}
+# 1. Prepare the data (only the Gene columns)
+# We use the same 'genes_only' we used for PERMANOVA
+gene_data_matrix <- as.matrix(final_dataset[, grep("^Dapma", colnames(final_dataset))])
+
+# 2. Run UMAP
+# n_neighbors: controls balance between local and global structure (try 15)
+# min_dist: controls how tightly points are packed (try 0.1)
+set.seed(42) # For reproducibility
+umap_results <- umap(gene_data_matrix)
+
+# 3. Create a data frame for plotting
+umap_df <- data.frame(
+  UMAP1 = umap_results$layout[,1],
+  UMAP2 = umap_results$layout[,2],
+  Site = final_dataset$Site,
+  Concentration = final_dataset$Description
+)
+
+# 4. Plot the UMAP
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = Site, shape = Concentration)) +
+  geom_point(size = 3, alpha = 0.8) +
+  scale_shape_manual(values = c(15, 16, 17, 18)) +
+  theme_minimal() +
+  labs(title = "UMAP: Biological Clustering by Site and Concentration",
+       subtitle = "Non-linear dimensionality reduction of ~19,000 genes",
+       x = "UMAP 1", y = "UMAP 2")
+```
+
+```{r}
+
+# 1. Re-create the genes_only object
+genes_only <- final_dataset[, grep("^Dapma", colnames(final_dataset))]
+
+# Calculate the total expression (sum) per sample
+final_dataset$Total_Expression <- rowSums(genes_only)
+
+ggplot(final_dataset, aes(x = Site, y = Total_Expression, fill = Description)) +
+  geom_violin(alpha = 0.6) +
+  geom_point(position = position_jitterdodge(), alpha = 0.2) +
+  theme_minimal() +
+  labs(title = "Biological Stability across Sites",
+       y = "Total Transcriptomic Sum")
+```
+#sum of expression values for each gene measured in one sample 
+#If no interaction would look same as control 
+#variance changes depneding on sight 
+#D03 and D11 specifically have outliers, could indicate severe metabolmic disruption, extreme stress
+
+```{r}
+
+# Ensure Description is a factor in the right order
+final_dataset$Description <- factor(final_dataset$REF, levels = c("Control", "1x", "10x"))
+
+ggplot(final_dataset, aes(x = Site, y = Total_Expression, fill = REF)) +
+  geom_violin(alpha = 0.7) +
+  geom_jitter(width = 0.1, alpha = 0.3, size = 1) +
+  facet_wrap(~Description, ncol = 1) + # This separates the three concentrations
+  theme_minimal() +
+  labs(title = "Metabolic Activity Across Sites by Dose",
+       subtitle = "Looking for Site-specific responses to 1x and 10x concentrations",
+       y = "Total Transcriptomic Sum",
+       x = "River Site") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+#D03 much worse in the x10 
+#D11 and D12 stress in the x1, river water at end already causing stress 
+#narrow is more uniform (all Daphina acting in similar way)
+
+```{r}
+# 1. Select top 20 genes (to keep it readable)
+var_genes <- apply(genes_only, 2, var)
+select_genes <- names(sort(var_genes, decreasing = TRUE)[1:20])
+
+# 2. Reshape data for ggplot
+heatmap_df <- final_dataset %>%
+  select(Site, Description, all_of(select_genes)) %>%
+  pivot_longer(cols = starts_with("Dapma"), names_to = "Gene", values_to = "Expression")
+
+# 3. Plot the "Heatmap"
+ggplot(heatmap_df, aes(x = Site, y = Gene, fill = Expression)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = mean(heatmap_df$Expression)) +
+  facet_wrap(~Description, ncol = 1) + # Separates Control, 1x, 10x
+  theme_minimal() +
+  labs(title = "Gene Expression Patterns Across Sites and Dose",
+       subtitle = "Visualizing interactions through faceted tile plots")
+```
+```{r}
+# A Two-Way ANOVA to test for Interaction
+interaction_model <- lm(Total_Expression ~ Site * Description, data = final_dataset)
+anova_results <- anova(interaction_model)
+
+# Look at the 'Site:Description' p-value
+print(anova_results)
+```
+#Site:Description: p=0.0117
+#p > 0.05, proof that effect of the effluent depends on location, effluent's impact on metabolism is signlinficantly modified by the river site's specific conditions 
+
+#Site: p=0.0002
+#even without considering treatment, location of river is major driver of biological differences, Daphnina are biologically distinct as you move from D01 to D012, likely due to variation in water at those sites  
+
+#Description: p=0.066
+#not significant at 5% level, if description was significant but interaction was not, would mean effluent affects every site in the same way 
+#suggets effluent is not universally toxic, only toxic at specific sites 
+
+```{r}
+# install.packages("car")
+library(car)
+
+# Test if the variance (spread) of Total_Expression is equal across Site and Description
+leveneTest(Total_Expression ~ Site * Description, data = final_dataset)
+```
+
+#non significant, so can use ANOVA 
+#makes ANOVA more robust 
+
+```{r}
+permanova_res <- adonis2(genes_only ~ Site * Description, 
+                         data = final_dataset, 
+                         method = "euclidean")
+print(permanova_res)
+```
+#p = 0.0001 
+#difference between site and descriptions not random noise 
+
+#R2 = 25%
+#Approximately 25% of all variation in gene expression across Daphnia can be explained by where they were in the river (site) and how much effulent they were exposed to (description)
+
+```{r}
+# Check the effect of the interaction group non-parametrically
+final_dataset$Group <- interaction(final_dataset$Site, final_dataset$Description)
+kruskal_res <- kruskal.test(Total_Expression ~ Group, data = final_dataset)
+print(kruskal_res)
+```
+#non-parametirc, just looks at rank 
+#when just look at what Daphina are more stressed than others, still significant 
+
+```{r}
+library(limma)
+
+# 1. Create a combined factor for all conditions
+Group <- factor(paste(final_dataset$Site, final_dataset$Description, sep="_"))
+
+# 2. Create the design matrix (no intercept)
+design <- model.matrix(~0 + Group)
+colnames(design) <- levels(Group)
+
+# 3. Fit the linear model to your gene data
+# Note: we transpose 'genes_only' so genes are rows and samples are columns
+fit <- lmFit(t(genes_only), design)
+```
+
+```{r}
+# We create a list of contrasts for every site
+#1. Get all your site names (excluding the Control site itself)
+sites <- c("D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10", "D11", "D12")
+
+# 2. Create the list of contrast strings
+contrast_strings <- c(
+  paste0(sites, "_1x_vs_Ctrl = ", sites, "_1x - Control_Control"),
+  paste0(sites, "_10x_vs_Ctrl = ", sites, "_10x - Control_Control")
+)
+
+# 3. Create the contrast matrix
+cm <- makeContrasts(contrasts = contrast_strings, levels = design)
+
+# 4. Apply the contrasts to your fit
+fit2 <- contrasts.fit(fit, cm)
+
+# 5. Run Empirical Bayes (The essential significance step)
+fit2 <- eBayes(fit2)
+```
+
+
+```{r}
+library(limma)
+library(dplyr)
+library(pheatmap)
+
+# ==========================================
+# 1. LIMMA MODELING & EMPIRICAL BAYES
+# ==========================================
+
+# Create a combined factor for all conditions
+Group <- factor(paste(final_dataset$Site, final_dataset$Description, sep="_"))
+
+# Create the design matrix (no intercept)
+design <- model.matrix(~0 + Group)
+colnames(design) <- levels(Group)
+
+# Fit the linear model to your gene data (Genes as rows, Samples as columns)
+fit <- lmFit(t(genes_only), design)
+
+# Define sites and contrast strings
+sites <- c("D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10", "D11", "D12")
+contrast_strings <- c(
+  paste0(sites, "_1x_vs_Ctrl = ", sites, "_1x - Control_Control"),
+  paste0(sites, "_10x_vs_Ctrl = ", sites, "_10x - Control_Control")
+)
+
+# Apply contrasts and run Empirical Bayes
+cm <- makeContrasts(contrasts = contrast_strings, levels = design)
+fit2 <- contrasts.fit(fit, cm)
+fit2 <- eBayes(fit2)
+
+# ==========================================
+# 2. EXTRACT TOP 5 GENES PER COMPARISON
+# ==========================================
+
+comparison_names <- colnames(fit2$coefficients)
+top_genes_list <- list()
+
+for(comp in comparison_names) {
+  top_5 <- topTable(fit2, coef = comp, number = 5, sort.by = "P")
+  top_5$Comparison <- comp
+  top_5$GeneID <- rownames(top_5)
+  top_genes_list[[comp]] <- top_5
+}
+
+final_top_genes_table <- do.call(rbind, top_genes_list)
+
+# Extract unique genes for 1x and 10x respectively
+top_1x_genes <- final_top_genes_table %>% 
+  filter(grepl("_1x_", Comparison)) %>% 
+  pull(GeneID) %>% unique()
+
+top_10x_genes <- final_top_genes_table %>% 
+  filter(grepl("_10x_", Comparison)) %>% 
+  pull(GeneID) %>% unique()
+
+# ==========================================
+# 3. PREPARE HEATMAP MATRICES & ANNOTATIONS
+# ==========================================
+
+# Ensure normalized matrix has sample names
+norm_matrix <- t(genes_only)
+colnames(norm_matrix) <- rownames(final_dataset)
+
+# Get indices for 1x and 10x groups
+idx_1x <- which(final_dataset$Description %in% c("1x", "Control"))
+idx_10x <- which(final_dataset$Description %in% c("10x", "Control"))
+
+# Subset matrices
+mat_1x <- norm_matrix[top_1x_genes, idx_1x]
+mat_10x <- norm_matrix[top_10x_genes, idx_10x]
+
+# Create annotations (Forcing to character removes ghost factor levels!)
+anno_1x <- data.frame(
+  Site = as.character(final_dataset$Site[idx_1x]),
+  Dose = as.character(final_dataset$Description[idx_1x]),
+  stringsAsFactors = FALSE
+)
+rownames(anno_1x) <- colnames(mat_1x)
+
+anno_10x <- data.frame(
+  Site = as.character(final_dataset$Site[idx_10x]),
+  Dose = as.character(final_dataset$Description[idx_10x]),
+  stringsAsFactors = FALSE
+)
+rownames(anno_10x) <- colnames(mat_10x)
+
+# ==========================================
+# 4. BULLETPROOF COLOR DEFINITIONS
+# ==========================================
+
+# Define a universal color scheme for Sites so they match across plots
+unique_sites <- unique(as.character(final_dataset$Site))
+site_colors <- setNames(rainbow(length(unique_sites)), unique_sites)
+
+# Define exact colors for 1x plot
+ann_colors_1x <- list(
+  Site = site_colors[unique(anno_1x$Site)], # Only includes sites present in 1x data
+  Dose = c("Control" = "#999999", "1x" = "#377EB8")
+)
+
+# Define exact colors for 10x plot
+ann_colors_10x <- list(
+  Site = site_colors[unique(anno_10x$Site)], # Only includes sites present in 10x data
+  Dose = c("Control" = "#999999", "10x" = "#E41A1C")
+)
+
+# The gradient for the expression values
+my_gradient <- colorRampPalette(c("navy", "white", "firebrick3"))(100)
+
+# ==========================================
+# 5. GENERATE HEATMAPS
+# ==========================================
+
+# Plot 1: 1x Concentration
+pheatmap(mat_1x, 
+         main = "Top Genes: 1x vs Control",
+         scale = "row", 
+         color = my_gradient, 
+         annotation_col = anno_1x, 
+         annotation_colors = ann_colors_1x,
+         show_colnames = FALSE, 
+         border_color = NA,
+         clustering_method = "ward.D2")
+
+# Plot 2: 10x Concentration
+pheatmap(mat_10x, 
+         main = "Top Genes: 10x vs Control",
+         scale = "row", 
+         color = my_gradient, 
+         annotation_col = anno_10x, 
+         annotation_colors = ann_colors_10x,
+         show_colnames = FALSE, 
+         border_color = NA,
+         clustering_method = "ward.D2")
+```
+```{r}
+# --- 1x Heatmap (Ordered) ---
+
+# 1. Sort the indices so Control comes first, then D01, D02, etc.
+# We order by Dose (to put Control first) then by Site
+order_1x <- order(anno_1x$Dose != "Control", anno_1x$Site)
+mat_1x_ordered <- mat_1x[, order_1x]
+anno_1x_ordered <- anno_1x[order_1x, ]
+
+pheatmap(mat_1x_ordered, 
+         main = "Top Genes: 1x (Ordered by Site)",
+         scale = "row", 
+         color = my_gradient, 
+         annotation_col = anno_1x_ordered, 
+         annotation_colors = ann_colors_1x,
+         cluster_cols = FALSE,   # THIS IS KEY: prevents the scattering
+         show_colnames = FALSE, 
+         border_color = NA,
+         clustering_method = "ward.D2")
+
+
+# --- 10x Heatmap (Ordered) ---
+
+# 1. Sort the indices for the 10x matrix
+order_10x <- order(anno_10x$Dose != "Control", anno_10x$Site)
+mat_10x_ordered <- mat_10x[, order_10x]
+anno_10x_ordered <- anno_10x[order_10x, ]
+
+pheatmap(mat_10x_ordered, 
+         main = "Top Genes: 10x (Ordered by Site)",
+         scale = "row", 
+         color = my_gradient, 
+         annotation_col = anno_10x_ordered, 
+         annotation_colors = ann_colors_10x,
+         cluster_cols = FALSE,   # Keeps the Site 1, Site 2 order
+         show_colnames = FALSE, 
+         border_color = NA,
+         clustering_method = "ward.D2")
+```
+
+
+
+
+
+
+
+
+
+
+
+
