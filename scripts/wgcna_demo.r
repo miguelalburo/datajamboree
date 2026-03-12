@@ -7,7 +7,7 @@ source('fileio.R')
 
 # allow multi-threading within WGCNA
 # skip this line if you run RStudio or other third-party R environments
-#enableWGCNAThreads()
+# enableWGCNAThreads()
 
 
 # load data
@@ -46,7 +46,7 @@ adjacency = adjacency(data, power = softPower)
 
 
 # create topological overlap matrix
-TOM = TOMsimilarity(adjacency)
+TOM = TOMsimilarity(adjacency) ########## THIS TAKES FOREVER TO RUN. MAYBE USE BLUEBEAR
 dissTOM = 1-TOM
 
 
@@ -105,6 +105,9 @@ labeledHeatmap(Matrix = moduleTraitCor,
 
 
 # export to cytoscape 
+
+#### Below . Look at plot and select modules of interest. Here we select cyan and tan modules as an example.
+
 modules = c('cyan', 'tan') # select to modules of interest
 probes = colnames(data)
 inModule = is.finite(match(moduleColors, modules))

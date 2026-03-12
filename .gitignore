@@ -7,3 +7,6 @@ __pycache__/
 renv/library/       # don't commit the actual packages
 .Rhistory
 .RData
+
+# VS Code
+.vscode/

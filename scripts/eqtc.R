@@ -1,55 +1,38 @@
-# Preamble ---------------------------------------------------------------------
-rm(list=ls())
+#
+# expression quantitative trait chemical (eQTC) analysis
+# 
+# Analysis of chemicals linked to DEGs
+#
+# Pairwise linear regressions
+# Gene expression ~ chemical concentration
+#
 
-# Load necessary libraries
-library(tidyverse)
+# Setup ---------------------------------------------------------------------
+
+
+# Essentials
+source("functions.R")
+
+
+# Specific libraries
+# library(tidyverse)
 
 # Load data
-chemicals_t <- read.delim('../data/water_chemicals.tsv') # chemical concentrations
+
+## Chemicals (Raw and Noise Added) 
+chemicals <- read.csv('../data/chem_conc.csv', row.names = 1)
+noise_chemicals <- read.csv('../data/chem_conc_noise.csv', row.names = 1) 
+
+## RNAseq Gene Counts & DEGs
 counts_t <- read.csv('../data/rna_vst_counts.csv', row.names = 1) # gene counts
 degs <- read.csv('../results/degs.csv') # differentially expressed genes
-metadata <- read.csv('../data/sample_sheet.csv') # sample metadata
 
 # Pre-processing ---------------------------------------------------------------
+
 
 # Transposing counts to feature matrix
 counts <- counts_t %>%
   t() %>% as.data.frame()
-
-
-# Sample Filtering: Remove chemicals that are mostly zeros across sites
-zeros_threshold = 0.25 # proportion of zeros
-
-chemicals_t <- chemicals_t %>%
-  filter(rowSums(across(where(is.numeric), ~ .x == 0)) <= zeros_threshold * 12)
-
-
-# Add control site to chemicals
-chemicals_t <- chemicals_t %>%
-  mutate(Control = 0)
-
-
-# # Long format
-# long_chemicals <- chemicals %>%
-#   pivot_longer(cols = where(is.numeric),
-#                names_to = "Site",
-#                values_to = "Concentration")
-
-
-# Transposing chemicals to feature matrix
-chemicals_short <- chemicals_t %>%
-  column_to_rownames(var = "CAS") %>%
-  select(-ChemName) %>% t() %>% as.data.frame() %>%
-  rownames_to_column(var = "Site")
-
-chemicals <-left_join(metadata,chemicals_short, by = "Site") %>%
-  select(-REF, -Description, -Site) %>%
-  column_to_rownames(var = "SampleID")
-
-
-# Optional: add noise to avoid zero variance
-chemicals_noise <- chemicals %>%
-  mutate(across(where(is.numeric), ~ .x + rnorm(n(), mean = 0, sd = 1e-6)))
 
 
 # REF filter
@@ -116,19 +99,18 @@ tophits <- results %>% filter(p.adj < 0.05)
 
 # Numbers
 tophits %>% nrow() # number of significant gene-chemical pairs
-tophits$cas_id %>% unique() %>% length() # number of chemicals with significant associations
-tophits$gene_id %>% unique() %>% length() # number of chemicals with significant associations
+tophits$cas_id %>% unique() %>% length() # no. chemicals w/ sig associations
+tophits$gene_id %>% unique() %>% length() # no. chemicals w/ sig associations
 
 
-# Table
+# Table of top chemicals & genes
 table_chemicals <- tophits$cas_id %>% table() %>% sort(decreasing=T)
 table_genes <- tophits$gene_id %>% table() %>% sort(decreasing=T)
 
 
-
 # Plots -------------------------------------------------------------------
 
-# Scatterplot a gene vs a chemical
+# Scatter-plot function
 plot_gene_chem <- function(combined, gene_a, chem_b) {
   combined %>%
     filter(gene_id == gene_a, cas_id == chem_b) %>%
@@ -138,11 +120,15 @@ plot_gene_chem <- function(combined, gene_a, chem_b) {
     labs(title = paste(gene_a, "~", chem_b), x = "Concentration", y = "Counts")
 }
 
+# Example plot
 geneA <- tophits$gene_id[2] # top gene
 chemB <- tophits$cas_id[2] # top chemical
 plot_gene_chem(combined, geneA, chemB)
 
+
 # Number of gene-chemical associations by genes & chemicals
+
+# Genes
 p.eqtc_gene <- table_genes %>%
   as.data.frame() %>%
   ggplot(aes(x = Freq)) +
@@ -151,6 +137,8 @@ p.eqtc_gene <- table_genes %>%
   labs(title = "Histogram of Significant Associations per Gene",
        x = "Number of Associated Chemicals per Gene",
        y = "Number of Genes")
+
+# Chemicals
 p.eqtc_chem <- table_chemicals %>%
   as.data.frame() %>%
   ggplot(aes(x = Freq)) +
@@ -159,3 +147,9 @@ p.eqtc_chem <- table_chemicals %>%
   labs(title = "Histogram of Significant Associations per Chemical",
        x = "Number of Associated Genes per Chemical",
        y = "Number of Chemicals")
+
+# Save & Write ------------------------------------------------------------
+
+# Imputated Chemomics Matrix
+write.csv(chemicals, '../results/rgcca/chemomics_matrix.csv')
+
