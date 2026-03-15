@@ -36,7 +36,9 @@ polar.ds <- load.dataset(
 
 
 # Combining into Feature Matrix List
-shared.ids <- intersect(row.names(rna.ds$data.matrix), row.names(polar.ds$data.matrix))
+shared.ids <- intersect(row.names(rna.ds$data.matrix),
+                        row.names(polar.ds$data.matrix))
+
 A <- list(rna.ds$data.matrix[shared.ids,], polar.ds$data.matrix[shared.ids,])
 
 
@@ -142,7 +144,8 @@ write.table(metabolites_of_interest, '../results/rgcca/mois_rgcca.txt',
 
 # Writing plots to .pdf
 for (fplot in names(p)){
-  pdf(paste('../results/rgcca/factor_plots_', fplot, '.pdf', sep = ''), width = 10, height = 6)
+  pdf(paste('../results/rgcca/factor_plots_', fplot, '.pdf', sep = ''), 
+      width = 10, height = 6)
   print(p[[fplot]])
   dev.off()
 }

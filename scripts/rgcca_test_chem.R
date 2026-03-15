@@ -1,7 +1,7 @@
 #
 # Regularised Generalised Canonical Correlation Analysis (RGCCA)
 #
-# Chemicals -> RNAseq Gene Counts -> DIMS Peak Intensity
+# Chemicals ~ RNAseq Gene Counts ~ DIMS Peak Intensity
 #
 
 
@@ -52,6 +52,9 @@ A <- list(
 # Analysis ----------------------------------------------------------------
 
 
+# Naming blocks for clarity in outputs
+block.names <- c("Chemicals", "Transcriptomics", "Metabolomics")
+
 # Scaling
 A <- lapply(A, function(x) scale(x))
 
@@ -59,9 +62,9 @@ A <- lapply(A, function(x) scale(x))
 # Design Matrix
 # Chemicals -> Transcriptomics -> Metabolomics
 # Chemicals and Metabolomics are NOT directly connected
-C <- matrix(c(0, 1, 0,
+C <- matrix(c(0, 1, 1,
               1, 0, 1,
-              0, 1, 0), 3, 3)
+              1, 1, 0), 3, 3)
 
 
 # Perform RGCCA
@@ -80,12 +83,7 @@ cca.res <- rgcca(
 )
 
 
-# Results -----------------------------------------------------------------
-
-
-# Average Variance Explained
-# Block 1 = Chemicals, Block 2 = RNA, Block 3 = Metabolomics
-cca.res$AVE
+# Features-of-Interest ----------------------------------------------------
 
 
 # Number of features selected per block
@@ -144,14 +142,57 @@ for (cond in conds) {
       p1 <- blocks[pair[1]]
       p2 <- blocks[pair[2]]
       
-      name <- paste(cond, p1, p1, sep = "_")
+      name <- paste(cond, p1, p2, sep = "_")
       
       p[[name]] <- factor.plot(y1, y2, group) +
         labs(title = paste(p1, "vs", p2),
-             legend = cond,
+             color = cond,
              x = p1,
              y = p2)
     }
+  }
+}
+
+library(plotly)
+
+conds <- c("Site", "REF", "Description")
+p.3D <- list()
+
+for (cond in conds) {
+  for (component in seq(ncomp)) {
+    
+    group <- rna.ds$meta.data[shared.ids, ][[cond]]
+    
+    # One axis per block
+    y1 <- cca.res$Y[[1]][, component]  # Chemicals
+    y2 <- cca.res$Y[[2]][, component]  # Transcriptomics
+    y3 <- cca.res$Y[[3]][, component]  # Metabolomics
+    
+    name <- paste(cond, "component", component, sep = "_")
+    
+    p.3D[[name]] <- plot_ly(
+      x = y1, y = y2, z = y3,
+      color = group,
+      colors = "Set1",
+      type = "scatter3d",
+      mode = "markers",
+      marker = list(size = 5, opacity = 0.8),
+      text = paste("Sample:", shared.ids,
+                   "<br>Group:", group),
+      hoverinfo = "text"
+    ) %>%
+      layout(
+        title = paste(cond, "- Component", component),
+        scene = list(
+          xaxis = list(title = "Chemicals"),
+          yaxis = list(title = "Transcriptomics"),
+          zaxis = list(title = "Metabolomics")
+        )
+      )
+    
+    # Save 3D plots
+    file = paste0("../results/rgcca/factor_plots_3D_", name, ".html")
+    htmlwidgets::saveWidget(p.3D[[name]], file)
   }
 }
 
@@ -172,7 +213,76 @@ write.table(metabolites_of_interest, '../results/rgcca/mois_rgcca.txt',
 
 # Write factor plots to .pdf
 for (fplot in names(p)) {
-  pdf(paste('../results/rgcca/factor_plots_', fplot, '.pdf', sep = ''), width = 10, height = 6)
+  pdf(paste('../results/rgcca/factor_plots_', fplot, '.pdf', sep = ''),
+      width = 10, height = 6)
   print(p[[fplot]])
   dev.off()
 }
+
+
+# Write Block Weights to csv
+for (i in seq_along(cca.res$a)) {
+  block.name <- block.names[i]
+  weights <- cca.res$a[[i]] %>% 
+    as.data.frame() %>% filter(V1 != 0, V2 != 0)
+  out.file <- paste0('../results/rgcca/block_weights_', block.name, '.csv')
+  write.csv(weights, out.file, row.names = TRUE)
+}
+
+
+# Write to report
+
+out.path <- '../results/rgcca/rgcca_report.txt'
+sink(out.path)
+
+cat("════════════════════════════════════════════════════════════\n")
+cat("  RGCCA Results\n")
+cat("════════════════════════════════════════════════════════════\n\n")
+
+## Parameters
+cat("── Model Parameters ────────────────────────────────────────\n")
+cat(sprintf("  Number of components : %d\n", ncomp))
+cat(sprintf("  Tau                  : %s\n", paste(tau, collapse = ", ")))
+cat(sprintf("  Sparsity             : %s\n", paste(sparsity, collapse = ", ")))
+cat("\n  Connection Matrix (C):\n")
+C.labelled <- C
+rownames(C.labelled) <- colnames(C.labelled) <- block.names
+print(as.data.frame(C.labelled))
+cat("\n")
+
+
+## AVE Outer (Variance Explained per Block) 
+cat("── AVE Outer: Variance Explained per Block ─────────────────\n")
+ave.outer <- cca.res$AVE$AVE_X  # Named list, one entry per block
+for (i in seq_along(ave.outer)) {
+  cat(sprintf("\n  Block %d | %s\n", i, block.names[i]))
+  for (comp in seq_along(ave.outer[[i]])) {
+    cat(sprintf("    Component %d : %.4f (%.2f%%)\n",
+                comp,
+                ave.outer[[i]][comp],
+                ave.outer[[i]][comp] * 100))
+  }
+}
+cat("\n")
+
+
+## AVE Inner
+cat("── AVE Inner: Inter-block Variance Explained ───────────────\n")
+ave.inner <- cca.res$AVE$AVE_inner  # One value per component
+for (comp in seq_along(ave.inner)) {
+  cat(sprintf("  Component %d : %.4f (%.2f%%)\n",
+              comp,
+              ave.inner[comp],
+              ave.inner[comp] * 100))
+}
+cat("\n")
+
+cat("════════════════════════════════════════════════════════════\n")
+cat(sprintf("  File written: %s\n", format(Sys.time(), "%Y-%m-%d %H:%M:%S")))
+cat("════════════════════════════════════════════════════════════\n")
+
+sink()
+message("Results written to: ", out.path)
+
+
+

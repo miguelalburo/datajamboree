@@ -1,0 +1,36 @@
+════════════════════════════════════════════════════════════
+  RGCCA Results
+════════════════════════════════════════════════════════════
+
+── Model Parameters ────────────────────────────────────────
+  Number of components : 2
+  Tau                  : optimal
+  Sparsity             : 0.2, 0.2, 0.2
+
+  Connection Matrix (C):
+                Chemicals Transcriptomics Metabolomics
+Chemicals               0               1            1
+Transcriptomics         1               0            1
+Metabolomics            1               1            0
+
+── AVE Outer: Variance Explained per Block ─────────────────
+
+  Block 1 | Chemicals
+    Component 1 : 0.2548 (25.48%)
+    Component 2 : 0.4048 (40.48%)
+
+  Block 2 | Transcriptomics
+    Component 1 : 0.0483 (4.83%)
+    Component 2 : 0.0641 (6.41%)
+
+  Block 3 | Metabolomics
+    Component 1 : 0.1405 (14.05%)
+    Component 2 : 0.0386 (3.86%)
+
+── AVE Inner: Inter-block Variance Explained ───────────────
+  Component 1 : 0.2190 (21.90%)
+  Component 2 : 0.2673 (26.73%)
+
+════════════════════════════════════════════════════════════
+  File written: 2026-03-13 14:26:24
+════════════════════════════════════════════════════════════

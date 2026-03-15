@@ -1,14 +1,28 @@
-rm(list = ls())
+#
+# Iterative Random Forest
+# - Which genes and metabolites are most associated with our features of interest
+#
 
+
+# Setup -------------------------------------------------------------------
+
+
+# Essentials
+source("functions.R")
+
+
+# Specifics
 library(iRF)
 library(AUC)
-source('fileio.R')
+
+
+# Prepare Data ------------------------------------------------------------
 
 
 # load data
 ds <- load.dataset(
   meta.file = '../data/sample_sheet.csv', meta.sep = ',',
-  data.file = '../data/rna_norm_counts.csv', data.sep = ','
+  data.file = '../data/rna_vst_counts.csv', data.sep = ','
 )
 X <- as.data.frame(ds$data.matrix)
 Y <- ds$meta.data$REF
@@ -28,6 +42,11 @@ train.id <- sample(1:n, size = 8*round(n/10))
 test.id <- setdiff(1:n, train.id)
 
 
+
+
+# Fitting -----------------------------------------------------------------
+
+
 # fit iRF without interaction importance estimation
 sel.prob <- rep(1/p, p)
 
@@ -39,6 +58,9 @@ fit <- iRF(x = X[train.id,],
            iter.return = 1:5,
            n.core = 4
 )
+
+
+# Plotting ----------------------------------------------------------------
 
 
 # plot ROC/AUC
@@ -59,6 +81,9 @@ par(mfrow = c(1,5))
 for (iter in 1:5){
   varImpPlot(rf[[iter]], n.var = 10, main = paste('Variable Importance (iter:', iter, ')')) 
 }
+
+
+# Fitting w/ Interaction Importanc Estimation -----------------------------
 
 
 # fit iRF with interaction importance estimation
@@ -83,7 +108,6 @@ toplot <- rf.ints$stability
 names(toplot) <- rf.ints$int
 toplot <- sort(toplot, decreasing = T)
 
-dev.off()
 dotchart(rev(toplot[1:min(20, length(toplot))]), 
          xlab = 'Stability Score', 
          xlim = c(0, 1)
