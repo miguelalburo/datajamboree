@@ -369,6 +369,44 @@ write.csv(full_results,
           file.path(params$out_dir, "module_trait_correlation.csv"),
           row.names = FALSE)
 
+
+# Module eigengenes
+write.csv(MEs_ordered, row.names = T,
+          file.path(params$out_dir, "eigengenes.csv"))
+
+
+# Write each module gene lists
+source("annotation.R")
+
+
+## Human Mapping
+for (module in names(all_edges)) {
+  genes <- unique(c(all_edges[[module]]$source_gene,all_edges[[module]]$target_gene))
+  
+  orthologs <- daphnia_to_ortholog(genes, hsa)
+  
+  file_name <- paste0("../results/wgcna/annotated_gene_lists/",module,"_hsa.txt")
+  
+  write.table(orthologs, file_name,
+              row.names = FALSE,
+              col.names = FALSE,
+              quote = FALSE)
+}
+
+## Drosophila
+for (module in names(all_edges)) {
+  genes <- unique(c(all_edges[[module]]$source_gene,all_edges[[module]]$target_gene))
+  
+  orthologs <- daphnia_to_ortholog(genes, dme)
+  
+  file_name <- paste0("../results/wgcna/annotated_gene_lists/",module,"_dme.txt")
+  
+  write.table(orthologs, file_name,
+              row.names = FALSE,
+              col.names = FALSE,
+              quote = FALSE)
+}
+
 # Summary -----------------------------------------------------------------
 
 cat("\n--- Output Summary ---\n")

@@ -150,6 +150,4 @@ p.eqtc_chem <- table_chemicals %>%
 
 # Save & Write ------------------------------------------------------------
 
-# Imputated Chemomics Matrix
-write.csv(chemicals, '../results/rgcca/chemomics_matrix.csv')
 

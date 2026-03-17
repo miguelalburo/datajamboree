@@ -126,7 +126,7 @@ if (is.null(params$soft_power)) {
 
 cat(sprintf("Soft power selected: %d\n", soft_power))
 
-pdf(file.path(params$out_dir, "soft_threshold.pdf"), width = 10, height = 5)
+pdf(file = file.path(params$out_dir, "soft_threshold.pdf"), width = 10, height = 5)
 par(mfrow = c(1, 2))
 plot(sft$fitIndices[, 1],
      -sign(sft$fitIndices[, 3]) * sft$fitIndices[, 2],
@@ -177,7 +177,7 @@ MEs           <- merge_result$newMEs
 cat(sprintf("Modules after merging: %d\n", length(unique(module_colors)) - 1))
 print(sort(table(module_colors), decreasing = TRUE))
 
-pdf(file.path(params$out_dir, "metabolite_dendrogram.pdf"), width = 14, height = 9)
+pdf(file = file.path(params$out_dir, "metabolite_dendrogram.pdf"), width = 14, height = 9)
 plotDendroAndColors(
   metabolite_tree,
   cbind(labels2colors(dynamic_mods), module_colors),
@@ -235,7 +235,7 @@ for (name in names(conds)) {
   dim(text_matrix) <- dim(module_trait_cor)
   
   # Plotting heatmap
-  pdf(file.path(params$out_dir, paste0(name,"_heatmap.pdf")), width = 12, height = 8)
+  pdf(file = file.path(params$out_dir, paste0(name,"_heatmap.pdf")), width = 12, height = 8)
   par(mar = c(6, 9, 3, 3))
   
   labeledHeatmap(
@@ -320,6 +320,10 @@ edge_list <- bind_rows(all_edges)
 write.csv(edge_list,
           file.path(params$out_dir, "combined_edge_list.csv"),
           row.names = FALSE)
+
+# Module eigenmetabolites
+write.csv(MEs_ordered, row.names = T,
+          file.path(params$out_dir, "eigenmetabolites.csv"))
 
 
 # Summary -----------------------------------------------------------------
