@@ -326,6 +326,21 @@ write.csv(MEs_ordered, row.names = T,
           file.path(params$out_dir, "eigenmetabolites.csv"))
 
 
+# Save Metabolite Module lists
+for (module in names(all_edges)) {
+  metabolites <- unique(c(all_edges[[module]]$source_gene,all_edges[[module]]$target_gene))
+  
+  metabs <- mz_to_metabolite(metabol, pos.kegg)
+  
+  file_name <- paste0("../results/wgcna/annotated_metabolite_lists/",module,"_KEGG.txt")
+  
+  write.table(metabs, file_name,
+              row.names = FALSE,
+              col.names = FALSE,
+              quote = FALSE)
+}
+
+
 # Summary -----------------------------------------------------------------
 
 cat("\n--- Output Summary ---\n")
