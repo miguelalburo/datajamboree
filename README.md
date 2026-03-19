@@ -5,6 +5,11 @@
   <img src="background.png" alt="Sublime's custom image" width = "450"/>
 </p>
 
+## Interactions Model
+<p align="center">
+  <img src="interactions.png" alt="Suas" width = "450"/>
+</p>
+
 ## Scientific Questions
 1. How does the individual omics level change over different locations (D01-D12),
 concentration levels (Control, 1x, 10x), and their interactions?
@@ -18,6 +23,17 @@ outcome on the Daphnia?
 
 4. What biological/environmental insights can you obtain from your data analysis
 findings?
+
+
+## Contributors
+
+- Takahiro Kato
+
+- Lauren Alexander
+
+- Yunchen Qi
+
+- Miguel Alburo 
 
 ## File Descriptions
 
@@ -38,6 +54,8 @@ datajamboree/
 │   ├── rna_vst_counts.csv  # Variance-stabilising
 │   │ # Conditions metadata
 │   ├── water_chemicals.tsv # Chemical levels
+│   ├── chem_conc.csv       # Sample x Concentration transformation
+│   ├── chem_conc_noise.csv # Noise imputed
 │   └── sample_sheet.csv    # Sample sheet (1x/10x)
 │
 ├── annotations/
@@ -50,29 +68,15 @@ datajamboree/
 │   └── rna_dma_to_dme_mappings.tsv     # Drosophila
 │
 ├── scripts/
-│   ├── fileio.R        # Input/output function
-│   ├── id_mapping.R    # Annotation
-│   ├── irf_demo.R      # ML model
-│   └── wgnca_demo.R    # Co-expression network
+│   ├── functions.R         # Essential. Load first.
+│   ├── annotations.R       # Annotation functions
+│   ├── process_chemicals.R # Chemical Impute
+│   ├── cytoscape.R         # WGCNA visualisations
+│   ├── wgcna.R             # Weighted Gene Co-expression Network
+│   ├── wmcna.R             # Metabolite Co-abundance Network
+│   ├── pca.R               # Principal Component Analysis
+│   ├── rgcca.R             # Canonical Correlation Analysis
+│   └── eigen.R             # WGCNA x WMCNA relationships
+│
 └── README.md
 ```
-## Depedencies
-First, run the following on a command-line terminal. This will download all the packages involved in the workflow.
-
-```bash
-# Python
-pip install -r requirements.txt
-
-# R
-Rscript install_packages.R
-```
-
-## Contributors
-
-- Takahiro Kato
-
-- Lauren Alexander
-
-- Yunchen Qi
-
-- Miguel Alburo 

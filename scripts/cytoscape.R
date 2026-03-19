@@ -1,110 +1,103 @@
 #
 # Script for visualising Gene Co-expression Networks in Cytoscape
 # 
-#
 
 
 # Setup -------------------------------------------------------------------
 
-# Essentials
 source("functions.R")
 
-# Specifics
 library(RCy3)
 library(RColorBrewer)
 
-
-# Configs
-NETWORK_DIR  <- "../results/wgcna/"
-EXPORT_DIR   <- "../results/wgcna/figures/"
+NETWORK_DIR <- "../results/wgcna/"
+EXPORT_DIR  <- "../results/wgcna/figures/"
 
 dir.create(EXPORT_DIR, showWarnings = FALSE, recursive = TRUE)
 
-# Ping Cytoscape
 cytoscapePing()
 
 
-# Discover file pairs -----------------------------------------------------
+# Load combined edge list -------------------------------------------------
+
+# Expected columns: source | target | weight | module
+edge_list <- read.csv(file.path(NETWORK_DIR, "combined_edge_list.csv"),
+                      stringsAsFactors = FALSE) %>% 
+  rename(source = 1, target = 2, weight = 3) %>%
+  filter(weight > 0.35)
 
 
-node_files <- list.files(NETWORK_DIR, pattern = "_nodes\\.txt$", full.names = TRUE)
-edge_files <- sub("_nodes\\.txt$", "_edges.txt", node_files)
+stopifnot(all(c("source", "target", "weight", "module") %in% names(edge_list)))
 
-# Drop pairs where the edge file is missing
-keep       <- file.exists(edge_files)
-node_files <- node_files[keep]
-edge_files <- edge_files[keep]
-
-message(sprintf("Found %d network pair(s)", length(node_files)))
+modules <- unique(edge_list$module)
+message(sprintf("Found %d module(s): %s", length(modules), paste(modules, collapse = ", ")))
 
 
-# Batch loop --------------------------------------------------------------
+# Helper: resolve module colour to hex ------------------------------------
+
+module_to_hex <- function(m) {
+  # If the module name is itself a recognised R colour (common in WGCNA),
+  # convert it directly; otherwise fall back to a Set2 palette colour.
+  if (m %in% grDevices::colours()) {
+    grDevices::rgb(t(grDevices::col2rgb(m)), maxColorValue = 255)
+  } else {
+    pal <- RColorBrewer::brewer.pal(max(3, length(modules)), "Set2")
+    pal[which(modules == m) %% length(pal) + 1]
+  }
+}
 
 
-for (i in seq_along(node_files)) {
+# Batch loop over modules -------------------------------------------------
+
+for (mod in modules) {
   
-  nf    <- node_files[i]
-  ef    <- edge_files[i]
-  title <- sub("_nodes\\.txt$", "", basename(nf))
+  message("\nProcessing module: ", mod)
   
-  message("\nProcessing: ", title)
+  # --- Subset edges for this module --------------------------------------
   
+  edges <- edge_list[edge_list$module == mod, c("source", "target", "weight")]
   
-  # Load data -------------------------------------------------------------
-  
-  nodes <- read.delim(nf, header = TRUE, sep = "\t") %>%
-    as.data.frame() %>%
-    select(-any_of("altName")) %>%
-    rename(id = "nodeName", group = "nodeAttr.nodesPresent...")
-  
-  edges <- read.delim(ef, header = TRUE, sep = "\t") %>%
-    as.data.frame() %>%
-    select(-any_of(c("fromAltName", "toAltName"))) %>%
-    rename(source = "fromNode", target = "toNode")
+  if (nrow(edges) == 0) {
+    message("  Skipping — no edges found.")
+    next
+  }
   
   
-  # Node metrics ----------------------------------------------------------
+  # --- Build node table from edge endpoints ------------------------------
   
-  degree_tbl <- bind_rows(
-    edges %>% select(id = source),
-    edges %>% select(id = target)
+  all_ids <- unique(c(edges$source, edges$target))
+  
+  degree_tbl <- dplyr::bind_rows(
+    dplyr::select(edges, id = source),
+    dplyr::select(edges, id = target)
   ) %>%
-    count(id, name = "degree")
+    dplyr::count(id, name = "degree")
   
-  connectivity_tbl <- bind_rows(
-    edges %>% select(id = source, weight),
-    edges %>% select(id = target, weight)
+  connectivity_tbl <- dplyr::bind_rows(
+    dplyr::select(edges, id = source, weight),
+    dplyr::select(edges, id = target, weight)
   ) %>%
-    group_by(id) %>%
-    summarise(connectivity = sum(weight, na.rm = TRUE), .groups = "drop")
+    dplyr::group_by(id) %>%
+    dplyr::summarise(connectivity = sum(weight, na.rm = TRUE), .groups = "drop")
   
-  nodes <- nodes %>%
-    left_join(degree_tbl,       by = "id") %>%
-    left_join(connectivity_tbl, by = "id") %>%
-    mutate(
-      degree       = replace(degree,       is.na(degree),       0),
-      connectivity = replace(connectivity, is.na(connectivity), 0),
+  nodes <- data.frame(id = all_ids, module = mod, stringsAsFactors = FALSE) %>%
+    dplyr::left_join(degree_tbl,       by = "id") %>%
+    dplyr::left_join(connectivity_tbl, by = "id") %>%
+    dplyr::mutate(
+      degree       = dplyr::coalesce(degree, 0L),
+      connectivity = dplyr::coalesce(connectivity, 0),
       is_hub       = connectivity >= quantile(connectivity, 0.95)
     )
   
   
-  # Module colours --------------------------------------------------------
+  # --- Resolve colour for this module ------------------------------------
   
-  modules <- unique(nodes$group)
-  
-  module_colors <- setNames(
-    sapply(modules, function(m) {
-      if (m %in% grDevices::colours()) {
-        grDevices::rgb(t(grDevices::col2rgb(m)), maxColorValue = 255)
-      } else {
-        brewer.pal(max(3, length(modules)), "Set2")[which(modules == m)]
-      }
-    }),
-    modules
-  )
+  hex_colour <- module_to_hex(mod)
   
   
-  # Create network --------------------------------------------------------
+  # --- Create network in Cytoscape ---------------------------------------
+  
+  title <- paste0("Module_", mod)
   
   net_suid <- createNetworkFromDataFrames(
     nodes      = nodes,
@@ -114,25 +107,17 @@ for (i in seq_along(node_files)) {
   )
   
   
-  # Visual style ----------------------------------------------------------
+  # --- Visual style ------------------------------------------------------
   
   style_name <- paste0("CoExp_", title)
   createVisualStyle(style_name)
   setVisualStyle(style_name)
   
   setBackgroundColorDefault("#1A1A2E", style.name = style_name)
+  setNodeLabelDefault("",             style.name = style_name)
   
-  # No labels on any nodes
-  setNodeLabelDefault("", style.name = style_name)
-  
-  # Node colour by module
-  setNodeColorMapping(
-    table.column        = "group",
-    table.column.values = modules,
-    colors              = unname(module_colors),
-    mapping.type        = "d",
-    style.name          = style_name
-  )
+  # All nodes in this module share the same module colour
+  setNodeColorDefault(hex_colour, style.name = style_name)
   
   # Node size by connectivity
   setNodeSizeMapping(
@@ -180,21 +165,18 @@ for (i in seq_along(node_files)) {
     mapping.type        = "c",
     style.name          = style_name
   )
-  setEdgeColorDefault("#7A7A8C", style.name = style_name)
+  setEdgeColorDefault("#7A7A8C",   style.name = style_name)
   setEdgeTargetArrowShapeDefault("NONE", style.name = style_name)
   setEdgeSourceArrowShapeDefault("NONE", style.name = style_name)
   
   
-  # Layout ----------------------------------------------------------------
+  # --- Layout & export ---------------------------------------------------
   
   layoutNetwork(
     "force-directed defaultSpringCoefficient=0.00004 defaultSpringLength=60",
     network = net_suid
   )
   fitContent()
-  
-  
-  # Export ----------------------------------------------------------------
   
   exportImage(
     filename      = file.path(EXPORT_DIR, paste0(title, ".png")),
@@ -211,4 +193,4 @@ for (i in seq_along(node_files)) {
   message("  Done — ", nrow(nodes), " nodes, ", nrow(edges), " edges")
 }
 
-message("\nAll networks processed.")
+message("\nAll modules processed.")
